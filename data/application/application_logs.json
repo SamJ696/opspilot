@@ -1,0 +1,110 @@
+[
+  {
+    "timestamp": "2026-11-05T10:05:02Z",
+    "service": "checkout-api",
+    "environment": "production",
+    "level": "INFO",
+    "message": "Serving checkout traffic on v2.4.0",
+    "deployment_version": "v2.4.0",
+    "trace_id": "trace-0901"
+  },
+  {
+    "timestamp": "2026-11-05T10:11:05Z",
+    "service": "checkout-api",
+    "environment": "production",
+    "level": "INFO",
+    "message": "Startup complete for checkout-api v2.4.1",
+    "deployment_version": "v2.4.1",
+    "trace_id": "trace-0990"
+  },
+  {
+    "timestamp": "2026-11-05T10:12:11Z",
+    "service": "payments-api",
+    "environment": "production",
+    "level": "WARN",
+    "message": "Retrying webhook delivery after a slow downstream response",
+    "deployment_version": "v1.8.0",
+    "trace_id": "trace-2001"
+  },
+  {
+    "timestamp": "2026-11-05T10:14:40Z",
+    "service": "inventory-api",
+    "environment": "production",
+    "level": "INFO",
+    "message": "Inventory cache refresh completed",
+    "deployment_version": "v3.1.2",
+    "trace_id": "trace-3001"
+  },
+  {
+    "timestamp": "2026-11-05T10:15:21Z",
+    "service": "checkout-api",
+    "environment": "production",
+    "level": "ERROR",
+    "message": "DatabaseConnectionError: Connection pool exhausted",
+    "deployment_version": "v2.4.1",
+    "trace_id": "trace-1001"
+  },
+  {
+    "timestamp": "2026-11-05T10:15:25Z",
+    "service": "checkout-api",
+    "environment": "production",
+    "level": "ERROR",
+    "message": "HTTP 500 while processing checkout request",
+    "deployment_version": "v2.4.1",
+    "trace_id": "trace-1002"
+  },
+  {
+    "timestamp": "2026-11-05T10:15:40Z",
+    "service": "checkout-api",
+    "environment": "production",
+    "level": "ERROR",
+    "message": "DatabaseConnectionError: Connection pool exhausted",
+    "deployment_version": "v2.4.1",
+    "trace_id": "trace-1003"
+  },
+  {
+    "timestamp": "2026-11-05T10:16:05Z",
+    "service": "checkout-api",
+    "environment": "production",
+    "level": "ERROR",
+    "message": "DatabaseConnectionError: Connection pool exhausted",
+    "deployment_version": "v2.4.1",
+    "trace_id": "trace-1004"
+  },
+  {
+    "timestamp": "2026-11-05T10:16:10Z",
+    "service": "checkout-api",
+    "environment": "production",
+    "level": "ERROR",
+    "message": "HTTP 500 while processing checkout request",
+    "deployment_version": "v2.4.1",
+    "trace_id": "trace-1005"
+  },
+  {
+    "timestamp": "2026-11-05T10:16:30Z",
+    "service": "checkout-api",
+    "environment": "production",
+    "level": "ERROR",
+    "message": "DatabaseConnectionError: Connection pool exhausted",
+    "deployment_version": "v2.4.1",
+    "trace_id": "trace-1006"
+  },
+  {
+    "timestamp": "2026-11-05T10:17:02Z",
+    "service": "checkout-api",
+    "environment": "production",
+    "level": "ERROR",
+    "message": "HTTP 500 while processing checkout request",
+    "deployment_version": "v2.4.1",
+    "trace_id": "trace-1007"
+  },
+  {
+    "timestamp": "2026-11-05T10:18:12Z",
+    "service": "payments-api",
+    "environment": "production",
+    "level": "INFO",
+    "message": "Payment authorization succeeded",
+    "deployment_version": "v1.8.0",
+    "trace_id": "trace-2002"
+  }
+]

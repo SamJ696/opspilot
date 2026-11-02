@@ -1,0 +1,37 @@
+[
+  {
+    "timestamp": "2026-11-05T08:01:10Z",
+    "job_id": "job-488",
+    "task": "extract_inventory",
+    "level": "INFO",
+    "message": "Starting inventory snapshot extract"
+  },
+  {
+    "timestamp": "2026-11-05T08:01:40Z",
+    "job_id": "job-488",
+    "task": "extract_inventory",
+    "level": "ERROR",
+    "message": "FileNotFoundError: inventory snapshot missing"
+  },
+  {
+    "timestamp": "2026-11-05T09:00:10Z",
+    "job_id": "job-501",
+    "task": "extract_customers",
+    "level": "INFO",
+    "message": "Loaded raw_customers source batch"
+  },
+  {
+    "timestamp": "2026-11-05T09:07:12Z",
+    "job_id": "job-501",
+    "task": "customer_transformation",
+    "level": "ERROR",
+    "message": "AnalysisException: Cannot resolve column customer_segment"
+  },
+  {
+    "timestamp": "2026-11-05T09:07:30Z",
+    "job_id": "job-501",
+    "task": "customer_transformation",
+    "level": "ERROR",
+    "message": "Column customer_segment not found in source DataFrame"
+  }
+]

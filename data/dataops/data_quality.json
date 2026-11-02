@@ -1,0 +1,17 @@
+[
+  {
+    "table": "raw_customers",
+    "check": "customer_id_not_null",
+    "status": "PASSED"
+  },
+  {
+    "table": "raw_customers",
+    "check": "segment_not_null",
+    "status": "PASSED"
+  },
+  {
+    "table": "raw_orders",
+    "check": "order_total_positive",
+    "status": "FAILED"
+  }
+]

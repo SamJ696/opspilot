@@ -1,0 +1,19 @@
+{
+  "job_name": "customer-analytics-etl",
+  "source_table": {
+    "name": "raw_customers",
+    "columns": [
+      "customer_id",
+      "customer_name",
+      "segment"
+    ]
+  },
+  "expected_schema": {
+    "name": "customer_analytics",
+    "columns": [
+      "customer_id",
+      "customer_name",
+      "customer_segment"
+    ]
+  }
+}

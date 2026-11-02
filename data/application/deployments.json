@@ -1,0 +1,48 @@
+[
+  {
+    "service": "checkout-api",
+    "version": "v2.4.0",
+    "previous_version": "v2.3.9",
+    "environment": "production",
+    "deployed_at": "2026-11-04T16:20:00Z",
+    "status": "SUCCESS",
+    "changes": [
+      "Added checkout request tracing",
+      "Updated tax calculation copy"
+    ]
+  },
+  {
+    "service": "payments-api",
+    "version": "v1.8.0",
+    "previous_version": "v1.7.4",
+    "environment": "production",
+    "deployed_at": "2026-11-05T09:00:00Z",
+    "status": "SUCCESS",
+    "changes": [
+      "Updated payment retry copy"
+    ]
+  },
+  {
+    "service": "checkout-api",
+    "version": "v2.4.1",
+    "previous_version": "v2.4.0",
+    "environment": "production",
+    "deployed_at": "2026-11-05T10:10:00Z",
+    "status": "SUCCESS",
+    "changes": [
+      "Updated database connection pooling configuration",
+      "Changed timeout defaults"
+    ]
+  },
+  {
+    "service": "inventory-api",
+    "version": "v3.1.2",
+    "previous_version": "v3.1.1",
+    "environment": "production",
+    "deployed_at": "2026-11-03T11:00:00Z",
+    "status": "SUCCESS",
+    "changes": [
+      "Refreshed inventory cache interval"
+    ]
+  }
+]
