@@ -2,22 +2,23 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
+
 from opspilot.orchestrator.runner import (
     load_investigation,
     resume_investigation,
     stream_investigation,
 )
-from opspilot.reporting import opening_line, specialist_lines
+from opspilot.reporting import opening_line
 from opspilot.storage.incident_repository import add_audit, get_incident
+from opspilot.switch_integration.authorization import can_decide_incident
 from opspilot.switch_integration.command_handler import CommandKind, HELP_TEXT, ParsedCommand
-from opspilot.switch_integration.dedupe import remember_thread
+from opspilot.switch_integration.incident_context import remember_origin, try_claim_approval_decision
 from opspilot.switch_integration.message_sender import SwitchMessageSender
 from opspilot.switch_integration.protocol_models import IncomingRoomMessage
 
 logger = logging.getLogger(__name__)
 
 NODE_LABELS = {
-    "triage": "Triage completed.",
     "log_investigator": "Log investigation complete.",
     "deployment_investigator": "Deployment investigation complete.",
     "health_investigator": "Service health investigation complete.",
@@ -58,11 +59,15 @@ class OpsPilotSwitchService:
             if command.kind == CommandKind.INCIDENT:
                 self._investigate(incoming, command.incident_text)
                 return
+            self._send(
+                incoming.room_id,
+                "OpsPilot did not recognize that command. Reply `help` for usage.",
+            )
         except Exception as exc:
             logger.exception("OpsPilot Switch handling failed")
             self._send(
                 incoming.room_id,
-                f"OpsPilot could not complete that request: {exc}",
+                f"OpsPilot could not complete that request for {getattr(command, 'incident_id', 'your message')}: {exc}",
             )
 
     def _send(self, room_id: str, content: str) -> None:
@@ -97,6 +102,14 @@ class OpsPilotSwitchService:
         if stored is None:
             self._send(incoming.room_id, f"Incident {incident_id} was not found.")
             return
+
+        if stored["status"] in {"RESOLVED", "REJECTED", "RECOVERY_FAILED"}:
+            self._send(
+                incoming.room_id,
+                f"Incident {incident_id} is already closed (status: {stored['status']}).",
+            )
+            return
+
         view = load_investigation(incident_id)
         if not view.get("pending_approval"):
             self._send(
@@ -104,16 +117,58 @@ class OpsPilotSwitchService:
                 f"Incident {incident_id} is not waiting for approval (status: {stored['status']}).",
             )
             return
-        add_audit(incident_id, "switch_decision", decision)
-        view = resume_investigation(incident_id, decision)
+
+        allowed, reason = can_decide_incident(
+            incident_id=incident_id,
+            room_id=incoming.room_id,
+            actor_sender=incoming.sender,
+            actor_name=incoming.sender_name,
+            actor_role=incoming.sender_role,
+        )
+        if not allowed:
+            self._send(incoming.room_id, reason)
+            add_audit(incident_id, "approval_denied", reason)
+            return
+
+        claim = try_claim_approval_decision(
+            incident_id,
+            message_id=incoming.message_id,
+            decision=decision,
+            actor_sender=incoming.sender,
+            actor_name=incoming.sender_name,
+            room_id=incoming.room_id,
+        )
+        if not claim.ok:
+            self._send(incoming.room_id, claim.reason)
+            return
+
+        add_audit(
+            incident_id,
+            "switch_decision",
+            f"{decision} by {incoming.sender_name} ({incoming.sender})",
+        )
+        try:
+            view = resume_investigation(incident_id, decision)
+        except Exception as exc:
+            logger.exception("Resume failed for %s after claim", incident_id)
+            self._send(
+                incoming.room_id,
+                f"Incident {incident_id} decision was recorded but resume failed: {exc}",
+            )
+            return
+
         self._send(
             incoming.room_id,
-            view.get("final_report") or f"Incident {incident_id} status: {view.get('status')}",
+            view.get("final_report")
+            or f"Incident {incident_id} status: {view.get('status')}",
         )
 
     def _investigate(self, incoming: IncomingRoomMessage, text: str) -> None:
         self._send(incoming.room_id, "Incident received. Starting triage.")
         incident_id: str | None = None
+        sent_final = False
+        sent_approval = False
+
         for event in stream_investigation(text):
             if event["type"] != "update":
                 continue
@@ -133,16 +188,16 @@ class OpsPilotSwitchService:
                         ),
                     )
                     continue
-                label = NODE_LABELS.get(name)
+
                 results = update.get("investigation_results") or {}
                 if results:
                     for item in results.values():
                         self._send(
                             incoming.room_id,
-                            f"- {item.get('agent', name)}: {item.get('summary', '')}",
+                            f"[{incident_id}] {item.get('agent', name)}: {item.get('summary', '')}",
                         )
-                elif label:
-                    self._send(incoming.room_id, label)
+                elif name in NODE_LABELS:
+                    self._send(incoming.room_id, f"[{incident_id}] {NODE_LABELS[name]}")
 
                 if name == "root_cause" and update.get("root_cause"):
                     hypothesis = update["root_cause"].get("hypothesis", "")
@@ -152,7 +207,8 @@ class OpsPilotSwitchService:
                     )
                     self._send(
                         incoming.room_id,
-                        f"Root cause hypothesis: {hypothesis}\nConfidence: {confidence_text}.",
+                        f"[{incident_id}] Root cause hypothesis: {hypothesis}\n"
+                        f"Confidence: {confidence_text}.",
                     )
 
                 if name == "remediation":
@@ -160,22 +216,38 @@ class OpsPilotSwitchService:
                     if action.get("summary"):
                         self._send(
                             incoming.room_id,
-                            f"Recommended action: {action['summary']}",
+                            f"[{incident_id}] Recommended action: {action['summary']}",
                         )
-                    if update.get("approval_request"):
+                    if update.get("approval_request") and not sent_approval:
                         self._send(incoming.room_id, update["approval_request"])
+                        sent_approval = True
+
+                if (
+                    update.get("final_report")
+                    and name in {"report", "rejection", "unsupported"}
+                    and not sent_final
+                ):
+                    self._send(incoming.room_id, update["final_report"])
+                    sent_final = True
 
         if not incident_id:
             self._send(incoming.room_id, "OpsPilot did not create an incident.")
             return
 
-        remember_thread(incident_id, incoming.room_id, incoming.reply_thread_id)
+        remember_origin(
+            incident_id,
+            room_id=incoming.room_id,
+            requester_sender=incoming.sender,
+            requester_name=incoming.sender_name,
+            requester_role=incoming.sender_role,
+            thread_id=incoming.reply_thread_id,
+        )
+
         final = load_investigation(incident_id)
-        if final.get("final_report") and not final.get("pending_approval"):
-            if final.get("status") in {"UNCLASSIFIED", "ROOT_CAUSE_IDENTIFIED"}:
-                self._send(incoming.room_id, final["final_report"])
-        elif not final.get("pending_approval"):
-            for line in specialist_lines(final):
-                pass  # already streamed
-            if final.get("status") == "UNCLASSIFIED":
-                self._send(incoming.room_id, final.get("final_report", "Unable to classify incident."))
+        if (
+            final.get("final_report")
+            and not final.get("pending_approval")
+            and not sent_final
+            and final.get("status") in {"UNCLASSIFIED", "ROOT_CAUSE_IDENTIFIED"}
+        ):
+            self._send(incoming.room_id, final["final_report"])

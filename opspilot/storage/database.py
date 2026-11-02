@@ -55,6 +55,26 @@ CREATE TABLE IF NOT EXISTS incident_threads (
     thread_id TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS incident_origin (
+    incident_id TEXT PRIMARY KEY,
+    room_id TEXT NOT NULL,
+    requester_sender TEXT NOT NULL,
+    requester_name TEXT NOT NULL,
+    requester_role TEXT,
+    thread_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS switch_approval_decisions (
+    incident_id TEXT PRIMARY KEY,
+    message_id TEXT NOT NULL UNIQUE,
+    decision TEXT NOT NULL,
+    actor_sender TEXT NOT NULL,
+    actor_name TEXT NOT NULL,
+    room_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 

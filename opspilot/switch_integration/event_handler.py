@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import logging
-
 from collections.abc import Callable
 
-from opspilot.switch_integration.command_handler import ParsedCommand, parse_command
+from opspilot.switch_integration.command_handler import parse_command
 from opspilot.switch_integration.dedupe import claim_message
 from opspilot.switch_integration.protocol_models import IncomingRoomMessage, WebSocketFrame
 
@@ -22,13 +21,16 @@ class SwitchEventHandler:
         self._on_command = on_command
 
     def handle_frame(self, frame: WebSocketFrame) -> None:
-        if frame.event != "message":
-            return
-        incoming = IncomingRoomMessage.from_frame(frame)
-        if incoming is None:
-            logger.warning("Malformed Switch message frame")
-            return
-        self.handle_incoming(incoming)
+        try:
+            if frame.event != "message":
+                return
+            incoming = IncomingRoomMessage.from_frame(frame)
+            if incoming is None:
+                logger.warning("Malformed Switch message frame")
+                return
+            self.handle_incoming(incoming)
+        except Exception:
+            logger.exception("Switch frame handling failed")
 
     def handle_incoming(self, incoming: IncomingRoomMessage) -> None:
         if self._allowed_rooms and incoming.room_id not in self._allowed_rooms:
@@ -37,6 +39,14 @@ class SwitchEventHandler:
 
         if incoming.sender_kind == "agent":
             logger.debug("Ignoring agent-originated message %s", incoming.message_id)
+            return
+
+        if not incoming.addressed:
+            logger.debug(
+                "Ignoring unaddressed message %s in room %s",
+                incoming.message_id,
+                incoming.room_id,
+            )
             return
 
         if not claim_message(incoming.message_id):
@@ -51,4 +61,3 @@ class SwitchEventHandler:
             self._on_command(incoming, command)
         except Exception:
             logger.exception("Switch command handler failed for %s", incoming.message_id)
-            raise

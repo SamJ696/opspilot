@@ -95,11 +95,12 @@ def parse_command(body: str) -> ParsedCommand:
     )
 
 
-HELP_TEXT = """OpsPilot commands:
+HELP_TEXT = """OpsPilot commands (message must address @opspilot):
 - `@opspilot <incident description>` — start an investigation
-- `approve INC-1001` — approve remediation for that incident
+- `approve INC-1001` — approve simulated remediation for that incident
 - `reject INC-1001` — reject remediation
 - `status INC-1001` — show incident status
 - `help` — show this message
 
+Approval authorization follows OPSPILOT_APPROVAL_POLICY (default: requester_only).
 Recovery actions are simulated and require an explicit approve command with the incident ID."""

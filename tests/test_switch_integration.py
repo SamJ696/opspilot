@@ -1,12 +1,15 @@
 import os
+import threading
 import unittest
 from unittest.mock import MagicMock, patch
 
 from opspilot.switch_integration.adapter import SwitchAdapter
+from opspilot.switch_integration.authorization import can_decide_incident
 from opspilot.switch_integration.command_handler import CommandKind, parse_command
 from opspilot.switch_integration.connection import build_ws_url
 from opspilot.switch_integration.dedupe import claim_message
 from opspilot.switch_integration.event_handler import SwitchEventHandler
+from opspilot.switch_integration.incident_context import remember_origin
 from opspilot.switch_integration.protocol_models import IncomingRoomMessage, WebSocketFrame
 from opspilot.switch_integration.service import OpsPilotSwitchService
 from tests.base import IsolatedCase
@@ -15,15 +18,24 @@ CHECKOUT = "Our checkout API is returning HTTP 500 errors after the latest produ
 DATABRICKS = "Our Databricks customer analytics pipeline failed because of a SQL schema mismatch."
 
 
-def _incoming(body: str, *, room: str = "room-1", message_id: str = "msg-1") -> IncomingRoomMessage:
+def _incoming(
+    body: str,
+    *,
+    room: str = "room-1",
+    message_id: str = "msg-1",
+    addressed: bool = True,
+    sender: str = "user-1",
+    sender_name: str = "Samyak",
+) -> IncomingRoomMessage:
     return IncomingRoomMessage(
         room_id=room,
         message_id=message_id,
         body=body,
-        sender="user-1",
-        sender_name="Samyak",
+        sender=sender,
+        sender_name=sender_name,
         sender_kind="user",
-        addressed=True,
+        sender_role="member",
+        addressed=addressed,
         thread_id=None,
         reply_thread_id=message_id,
     )
@@ -41,12 +53,24 @@ def _frame(body: str, **kwargs) -> WebSocketFrame:
                 "sender": incoming.sender,
                 "sender_name": incoming.sender_name,
                 "sender_kind": incoming.sender_kind,
+                "sender_role": incoming.sender_role,
                 "message_id": incoming.message_id,
                 "body": incoming.body,
                 "timestamp": 1,
                 "thread_id": incoming.thread_id,
             },
         },
+    )
+
+
+def _bind_origin(incident_id: str, incoming: IncomingRoomMessage) -> None:
+    remember_origin(
+        incident_id,
+        room_id=incoming.room_id,
+        requester_sender=incoming.sender,
+        requester_name=incoming.sender_name,
+        requester_role=incoming.sender_role,
+        thread_id=incoming.reply_thread_id,
     )
 
 
@@ -71,6 +95,18 @@ class CommandParserTests(unittest.TestCase):
 
 
 class EventHandlerTests(IsolatedCase):
+    def test_unaddressed_incident_is_ignored(self) -> None:
+        seen = []
+        handler = SwitchEventHandler(allowed_rooms={"room-1"}, on_command=lambda *args: seen.append(args))
+        handler.handle_frame(_frame("@opspilot " + CHECKOUT, addressed=False))
+        self.assertEqual(seen, [])
+
+    def test_unaddressed_approve_is_ignored(self) -> None:
+        seen = []
+        handler = SwitchEventHandler(allowed_rooms={"room-1"}, on_command=lambda *args: seen.append(args))
+        handler.handle_frame(_frame("approve INC-1001", addressed=False))
+        self.assertEqual(seen, [])
+
     def test_agent_messages_are_ignored(self) -> None:
         seen = []
         handler = SwitchEventHandler(allowed_rooms={"room-1"}, on_command=lambda *args: seen.append(args))
@@ -91,13 +127,20 @@ class EventHandlerTests(IsolatedCase):
         handler.handle_frame(_frame(CHECKOUT, message_id="dup-1"))
         handler.handle_frame(_frame(CHECKOUT, message_id="dup-1"))
         self.assertEqual(len(seen), 1)
-        self.assertTrue(claim_message("dup-1") is False)
+        self.assertFalse(claim_message("dup-1"))
 
     def test_malformed_frame_is_safe(self) -> None:
         seen = []
         handler = SwitchEventHandler(allowed_rooms={"room-1"}, on_command=lambda *args: seen.append(args))
         handler.handle_frame(WebSocketFrame(event="message", data={"broken": True}))
         self.assertEqual(seen, [])
+
+    def test_handler_exception_does_not_propagate(self) -> None:
+        def _boom(*_args, **_kwargs) -> None:
+            raise RuntimeError("boom")
+
+        handler = SwitchEventHandler(allowed_rooms={"room-1"}, on_command=_boom)
+        handler.handle_frame(_frame(CHECKOUT, message_id="boom-1"))
 
 
 class ServiceTests(IsolatedCase):
@@ -107,10 +150,49 @@ class ServiceTests(IsolatedCase):
         from opspilot.orchestrator.runner import start_investigation
 
         view = start_investigation(CHECKOUT)
-        incoming = _incoming("approve " + view["incident_id"])
+        incoming = _incoming("approve " + view["incident_id"], message_id="approve-1")
+        _bind_origin(view["incident_id"], incoming)
         service._dispatch(incoming, parse_command(incoming.body))
-        self.assertTrue(any("approve" in str(call.args[1]).lower() or "resolved" in str(call.args[1]).lower()
-                            for call in sender.send_room_message.call_args_list))
+        self.assertTrue(
+            any(
+                "resolved" in str(call.args[1]).lower()
+                for call in sender.send_room_message.call_args_list
+            )
+        )
+
+    def test_cross_room_approval_is_rejected(self) -> None:
+        sender = MagicMock()
+        service = OpsPilotSwitchService(sender)
+        from opspilot.orchestrator.runner import start_investigation
+
+        view = start_investigation(CHECKOUT)
+        origin = _incoming("@opspilot " + CHECKOUT, room="room-a", message_id="origin-1")
+        _bind_origin(view["incident_id"], origin)
+        incoming = _incoming(
+            "approve " + view["incident_id"],
+            room="room-b",
+            message_id="approve-cross",
+            sender=origin.sender,
+        )
+        service._dispatch(incoming, parse_command(incoming.body))
+        self.assertIn("another room", sender.send_room_message.call_args.args[1].lower())
+
+    def test_unauthorized_approval_is_rejected(self) -> None:
+        os.environ["OPSPILOT_APPROVAL_POLICY"] = "requester_only"
+        sender = MagicMock()
+        service = OpsPilotSwitchService(sender)
+        from opspilot.orchestrator.runner import start_investigation
+
+        view = start_investigation(CHECKOUT)
+        origin = _incoming("@opspilot " + CHECKOUT, sender="reporter-1", message_id="origin-2")
+        _bind_origin(view["incident_id"], origin)
+        incoming = _incoming(
+            "approve " + view["incident_id"],
+            sender="other-user",
+            message_id="approve-other",
+        )
+        service._dispatch(incoming, parse_command(incoming.body))
+        self.assertIn("original reporter", sender.send_room_message.call_args.args[1].lower())
 
     def test_rejection_does_not_touch_runtime(self) -> None:
         from config.settings import runtime_path
@@ -119,21 +201,57 @@ class ServiceTests(IsolatedCase):
         sender = MagicMock()
         service = OpsPilotSwitchService(sender)
         view = start_investigation(CHECKOUT)
-        incoming = _incoming("reject " + view["incident_id"])
+        incoming = _incoming("reject " + view["incident_id"], message_id="reject-1")
+        _bind_origin(view["incident_id"], incoming)
         service._dispatch(incoming, parse_command(incoming.body))
         self.assertFalse(runtime_path().exists())
 
     def test_approval_for_non_pending_incident_is_rejected(self) -> None:
         sender = MagicMock()
         service = OpsPilotSwitchService(sender)
-        from opspilot.orchestrator.runner import start_investigation, resume_investigation
+        from opspilot.orchestrator.runner import resume_investigation, start_investigation
 
         view = start_investigation(CHECKOUT)
+        incoming = _incoming("@opspilot " + CHECKOUT, message_id="origin-3")
+        _bind_origin(view["incident_id"], incoming)
         resume_investigation(view["incident_id"], "approve")
-        incoming = _incoming("approve " + view["incident_id"])
-        service._dispatch(incoming, parse_command(incoming.body))
+        retry = _incoming("approve " + view["incident_id"], message_id="approve-again")
+        service._dispatch(retry, parse_command(retry.body))
         last = sender.send_room_message.call_args.args[1].lower()
-        self.assertIn("not waiting", last)
+        self.assertTrue("not waiting" in last or "already closed" in last or "already has decision" in last)
+
+    def test_duplicate_simultaneous_approval_is_safe(self) -> None:
+        from config.settings import runtime_path
+        from opspilot.orchestrator.runner import start_investigation
+
+        sender = MagicMock()
+        service = OpsPilotSwitchService(sender)
+        view = start_investigation(CHECKOUT)
+        origin = _incoming("@opspilot " + CHECKOUT, message_id="origin-4")
+        _bind_origin(view["incident_id"], origin)
+        barrier = threading.Barrier(2)
+
+        def _worker(message_id: str) -> None:
+            barrier.wait()
+            incoming = _incoming(
+                "approve " + view["incident_id"],
+                message_id=message_id,
+                sender=origin.sender,
+            )
+            service._dispatch(incoming, parse_command(incoming.body))
+
+        threads = [
+            threading.Thread(target=_worker, args=("dup-a",)),
+            threading.Thread(target=_worker, args=("dup-b",)),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+
+        self.assertTrue(runtime_path().exists())
+        messages = [call.args[1].lower() for call in sender.send_room_message.call_args_list]
+        self.assertEqual(sum("resolved" in text for text in messages), 1)
 
     def test_status_for_missing_incident(self) -> None:
         sender = MagicMock()
@@ -144,11 +262,32 @@ class ServiceTests(IsolatedCase):
         self.assertIn("not found", sender.send_room_message.call_args.args[1].lower())
 
 
+class AuthorizationTests(IsolatedCase):
+    def test_allowlist_policy(self) -> None:
+        os.environ["OPSPILOT_APPROVAL_POLICY"] = "allowlist"
+        os.environ["OPSPILOT_APPROVER_SENDERS"] = "approver-1"
+        remember_origin(
+            "INC-2000",
+            room_id="room-1",
+            requester_sender="reporter-1",
+            requester_name="Reporter",
+            requester_role="member",
+            thread_id="t-1",
+        )
+        ok, _ = can_decide_incident(
+            incident_id="INC-2000",
+            room_id="room-1",
+            actor_sender="approver-1",
+            actor_name="Approver",
+            actor_role="admin",
+        )
+        self.assertTrue(ok)
+
+
 class AdapterTests(unittest.TestCase):
     def test_missing_config_does_not_break_cli_import(self) -> None:
         self.assertIsInstance(SwitchAdapter.validate_config(), list)
 
-    @patch.dict(os.environ, {}, clear=False)
     def test_ws_url_uses_documented_path(self) -> None:
         url = build_ws_url(
             "http://127.0.0.1:8080",
@@ -182,7 +321,10 @@ class AdapterTests(unittest.TestCase):
         adapter._api_key = "key"
         adapter._protocol = None
         adapter._connection_id = "conn-1"
-        adapter._reconnect_delay = 0
+        adapter._base_delay = 0
+        adapter._max_delay = 0
+        adapter._attempt = 0
+        adapter._active_connection = None
         adapter._handler = MagicMock()
         adapter._service = MagicMock()
         connection_cls.side_effect = _factory

@@ -63,8 +63,32 @@ def switch_connection_id_path() -> Path:
     )
 
 
-def switch_reconnect_delay_seconds() -> float:
-    return float(os.getenv("SWITCH_RECONNECT_DELAY_SECONDS", "3"))
+def switch_reconnect_base_seconds() -> float:
+    raw = os.getenv("SWITCH_RECONNECT_BASE_SECONDS", "")
+    if raw:
+        return float(raw)
+    legacy = os.getenv("SWITCH_RECONNECT_DELAY_SECONDS", "")
+    if legacy:
+        return float(legacy)
+    return 1.0
+
+
+def switch_reconnect_max_seconds() -> float:
+    return float(os.getenv("SWITCH_RECONNECT_MAX_SECONDS", "30"))
+
+
+def switch_approval_policy() -> str:
+    return os.getenv("OPSPILOT_APPROVAL_POLICY", "requester_only").strip().lower()
+
+
+def switch_approver_senders() -> set[str]:
+    raw = os.getenv("OPSPILOT_APPROVER_SENDERS", "").strip()
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def switch_approver_roles() -> set[str]:
+    raw = os.getenv("OPSPILOT_APPROVER_ROLES", "owner,admin")
+    return {item.strip().lower() for item in raw.split(",") if item.strip()}
 
 
 def switch_protocol_version() -> int | None:

@@ -8,6 +8,7 @@ __pycache__/
 *.sqlite-shm
 data/runtime/
 data/demo/
+data/runtime/switch_registration.env
 .pytest_cache/
 .vscode/
 .idea/

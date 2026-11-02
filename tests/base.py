@@ -13,6 +13,9 @@ class IsolatedCase(unittest.TestCase):
             "OPSPILOT_CHECKPOINT_PATH": os.environ.get("OPSPILOT_CHECKPOINT_PATH"),
             "OPSPILOT_RUNTIME_PATH": os.environ.get("OPSPILOT_RUNTIME_PATH"),
             "OPSPILOT_ENABLE_LLM": os.environ.get("OPSPILOT_ENABLE_LLM"),
+            "OPSPILOT_APPROVAL_POLICY": os.environ.get("OPSPILOT_APPROVAL_POLICY"),
+            "OPSPILOT_APPROVER_SENDERS": os.environ.get("OPSPILOT_APPROVER_SENDERS"),
+            "OPSPILOT_APPROVER_ROLES": os.environ.get("OPSPILOT_APPROVER_ROLES"),
         }
         os.environ["OPSPILOT_DB_PATH"] = str(root / "incidents.db")
         os.environ["OPSPILOT_CHECKPOINT_PATH"] = str(root / "checkpoints.sqlite")

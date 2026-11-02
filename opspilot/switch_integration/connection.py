@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 import uuid
 from collections.abc import Callable
-from typing import Any
 from urllib.parse import urlencode, urlparse, urlunparse
 
 from opspilot.switch_integration.protocol_models import ConnectionState, WebSocketFrame
@@ -63,21 +63,24 @@ class SwitchConnection:
         api_key: str,
         *,
         on_frame: Callable[[WebSocketFrame], None],
+        on_connected: Callable[[ConnectionState], None] | None = None,
         on_disconnect: Callable[[Exception | None], None] | None = None,
+        stop: threading.Event | None = None,
     ) -> None:
         self._ws_url = ws_url
         self._api_key = api_key
         self._on_frame = on_frame
+        self._on_connected = on_connected
         self._on_disconnect = on_disconnect
+        self._stop = stop or threading.Event()
         self._connection_state: ConnectionState | None = None
-        self._stop = False
 
     @property
     def connection_state(self) -> ConnectionState | None:
         return self._connection_state
 
     def stop(self) -> None:
-        self._stop = True
+        self._stop.set()
 
     def run_forever(self) -> None:
         try:
@@ -96,10 +99,9 @@ class SwitchConnection:
                 open_timeout=30,
             ) as websocket:
                 logger.info("Switch WebSocket connected")
-                next_ping = time.monotonic()
                 interval = 2.0
-                while not self._stop:
-                    timeout = max(0.1, min(1.0, next_ping - time.monotonic()))
+                while not self._stop.is_set():
+                    timeout = min(1.0, interval)
                     try:
                         raw = websocket.recv(timeout=timeout)
                     except TimeoutError:
@@ -117,21 +119,22 @@ class SwitchConnection:
                     if frame.event == "connection_state":
                         self._connection_state = ConnectionState.model_validate(frame.data)
                         interval = self._connection_state.heartbeat_interval_seconds
-                        next_ping = time.monotonic() + interval
+                        if self._on_connected:
+                            self._on_connected(self._connection_state)
                     elif frame.event == "ping":
                         websocket.send(json.dumps({"type": "pong"}))
-                        next_ping = time.monotonic() + interval
                     elif frame.event == "refused":
                         detail = frame.data.get("detail", frame.data)
                         raise RuntimeError(f"Switch refused connection: {detail}")
                     elif frame.event == "evicted":
                         raise RuntimeError(f"Switch evicted connection: {frame.data}")
-
-                    self._on_frame(frame)
+                    else:
+                        self._on_frame(frame)
         except Exception as exc:
-            error = exc
-            logger.warning("Switch WebSocket ended: %s", exc)
-            raise
+            if not self._stop.is_set():
+                error = exc
+                logger.warning("Switch WebSocket ended: %s", exc)
+                raise
         finally:
             if self._on_disconnect:
                 self._on_disconnect(error)

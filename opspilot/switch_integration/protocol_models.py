@@ -52,6 +52,7 @@ class IncomingRoomMessage(BaseModel):
     sender: str
     sender_name: str
     sender_kind: str | None
+    sender_role: str | None = None
     addressed: bool
     thread_id: str | None
     reply_thread_id: str
@@ -73,6 +74,7 @@ class IncomingRoomMessage(BaseModel):
             sender=payload.sender,
             sender_name=payload.sender_name,
             sender_kind=payload.sender_kind,
+            sender_role=payload.sender_role,
             addressed=payload.addressed,
             thread_id=payload.thread_id,
             reply_thread_id=anchor,
