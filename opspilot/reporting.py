@@ -70,7 +70,7 @@ def build_approval_request(state: dict[str, Any]) -> str:
         f"Recommended action:\n{action.get('summary', 'No action.')}\n\n"
         f"Confidence: {round(confidence * 100)}%.\n\n"
         "This action requires approval.\n"
-        "Approve or reject?"
+        f"Reply: `approve {state.get('incident_id')}` or `reject {state.get('incident_id')}`"
     )
 
 

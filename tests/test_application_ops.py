@@ -69,7 +69,7 @@ class ApplicationWorkflowTests(IsolatedCase):
             view["recommended_action"]["summary"],
             "Rollback checkout-api from v2.4.1 to v2.4.0.",
         )
-        self.assertIn("Approve or reject?", view["approval_request"])
+        self.assertIn("approve INC-", view["approval_request"])
         self.assertFalse(runtime_path().exists())
 
     def test_generic_http_500_is_inferred_from_error_volume(self) -> None:

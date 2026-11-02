@@ -42,6 +42,19 @@ CREATE TABLE IF NOT EXISTS audit_log (
     detail TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS switch_message_dedupe (
+    message_id TEXT PRIMARY KEY,
+    incident_id TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS incident_threads (
+    incident_id TEXT PRIMARY KEY,
+    room_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 
